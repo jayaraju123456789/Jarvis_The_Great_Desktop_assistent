@@ -83,6 +83,7 @@ from core.viseme               import VisemeStream
 from core.wake_word            import (
     WakeWordDetector, is_ready as wake_is_ready, install_and_download as wake_install,
 )
+from core.config               import get_api_key, sanitize_for_log, mask_key
 
 # How long the assistant stays awake with no user speech before it auto-sleeps
 # again (wake-word mode only).
@@ -283,8 +284,14 @@ def _render_prompt(template: str, values: dict) -> str:
 
 
 def _get_api_key() -> str:
-    with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)["gemini_api_key"]
+    key = get_api_key()
+    if not key:
+        try:
+            with open(API_CONFIG_PATH, "r", encoding="utf-8") as f:
+                key = json.load(f).get("gemini_api_key", "").strip()
+        except Exception:
+            pass
+    return key
 
 
 def _load_system_prompt() -> str:
@@ -2297,12 +2304,20 @@ class JarvisLive:
                     )
                     continue
 
+                # Schema / payload error (1007) — distinct from authentication failure
+                if "1007" in err_str or "missing field" in err_str.lower() or "invalid frame payload" in err_str.lower():
+                    self.ui.write_log(f"ERR: Tool schema / payload error (1007): {err_str[:120]}")
+                    _conn_backoff = min(getattr(self, "_conn_backoff", 3) * 2, 30)
+                    self._conn_backoff = _conn_backoff
+                    await asyncio.sleep(_conn_backoff)
+                    continue
+
                 # Invalid or restricted API key — stop hammering the API, prompt re-configuration
-                if "API key not valid" in err_str or "1007" in err_str or "1008" in err_str or "referer" in err_str.lower():
+                if "api key not valid" in err_str.lower() or "api_key_invalid" in err_str.lower() or "1008" in err_str or "referer" in err_str.lower():
                     if "referer" in err_str.lower() or "1008" in err_str:
                         self.ui.write_log("ERR: API key is restricted by website/referer. In Google Cloud Console, set 'Application restrictions' to 'None' for this key.")
                     else:
-                        self.ui.write_log("ERR: API key invalid — please re-enter your key.")
+                        self.ui.write_log("ERR: Google Gemini API authentication failed. Please verify the API key and enabled API access.")
                     self.ui.set_state("SLEEPING")
                     self.ui.prompt_reconfig()
                     while not self.ui._win._ready:

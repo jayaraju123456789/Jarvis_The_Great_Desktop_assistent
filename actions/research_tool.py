@@ -90,6 +90,9 @@ TOOL = {
             },
             "sources": {
                 "type": "ARRAY",
+                "items": {
+                    "type": "OBJECT"
+                },
                 "description": "Optional list of sources [{\"title\": \"...\", \"authors\": \"...\", \"year\": 2024, ...}]",
             },
         },

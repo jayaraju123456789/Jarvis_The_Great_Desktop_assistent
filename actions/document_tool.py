@@ -113,6 +113,9 @@ TOOL = {
             },
             "sections": {
                 "type": "ARRAY",
+                "items": {
+                    "type": "OBJECT"
+                },
                 "description": "Structured sections: [{\"type\": \"heading\"|\"paragraph\"|\"table\"|\"bullet_list\"|\"callout\"|\"references\", ...}]",
             },
             "open_in_word": {

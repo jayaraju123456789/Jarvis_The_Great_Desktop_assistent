@@ -100,10 +100,57 @@ def get_setting(key: str, default: Any = None) -> Any:
     return default
 
 
+def mask_key(key: str) -> str:
+    """Mask sensitive key safely without exposing secrets (e.g. AIzaSy****abcd or AQ.Ab8****pC7Q)."""
+    if not key:
+        return "<none>"
+    key = key.strip()
+    if len(key) <= 8:
+        return "****"
+    return f"{key[:6]}****{key[-4:]}"
+
+
+def get_key_diagnostics() -> dict:
+    """Inspect API key status safely without exposing secrets."""
+    load_dotenv()
+    source = "none"
+    key = ""
+    
+    if os.environ.get("GEMINI_API_KEY", "").strip():
+        source = "os.environ['GEMINI_API_KEY']"
+        key = os.environ.get("GEMINI_API_KEY", "").strip()
+    elif os.environ.get("GOOGLE_API_KEY", "").strip():
+        source = "os.environ['GOOGLE_API_KEY']"
+        key = os.environ.get("GOOGLE_API_KEY", "").strip()
+    elif API_KEYS_JSON_PATH.exists():
+        try:
+            data = json.loads(API_KEYS_JSON_PATH.read_text(encoding="utf-8"))
+            k = data.get("gemini_api_key", "").strip()
+            if k:
+                source = "config/api_keys.json"
+                key = k
+        except Exception:
+            pass
+
+    has_quotes = key.startswith(('"', "'")) or key.endswith(('"', "'"))
+    has_spaces = " " in key
+
+    return {
+        "exists": bool(key),
+        "source": source,
+        "length": len(key) if key else 0,
+        "masked": mask_key(key),
+        "has_surrounding_quotes": has_quotes,
+        "has_spaces": has_spaces,
+        "format_valid": bool(key and len(key) >= 20 and not has_quotes and not has_spaces),
+    }
+
+
 def sanitize_for_log(text: str) -> str:
     """Scrub known API keys and sensitive tokens from log messages."""
     key = get_api_key()
     if key and len(key) > 6 and key in text:
-        masked = key[:4] + "..." + key[-4:]
+        masked = mask_key(key)
         text = text.replace(key, masked)
     return text
+
