@@ -1,0 +1,27 @@
+{
+  "auto_reply_enabled": false,
+  "require_confirmation": false,
+  "busy_schedule": {
+    "enabled": true,
+    "days": [
+      "Monday",
+      "Tuesday",
+      "Wednesday",
+      "Thursday",
+      "Friday",
+      "Saturday",
+      "Sunday"
+    ],
+    "start_time": "09:00",
+    "end_time": "18:00",
+    "timezone": "local"
+  },
+  "busy_reply_message": "Hi, I’m busy right now and couldn’t answer your call. I’ll get back to you as soon as possible.",
+  "follow_up_enabled": true,
+  "follow_up_delay_minutes": 30,
+  "duplicate_prevention_enabled": true,
+  "rate_limit_minutes_per_contact": 15,
+  "min_ring_duration_seconds": 12.0,
+  "allowed_contacts": [],
+  "excluded_contacts": []
+}
