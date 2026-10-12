@@ -11,9 +11,11 @@ Supports:
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import re
+import socket
 import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass, field
@@ -107,6 +109,45 @@ PUBLIC_BENCHMARKS = [
 ]
 
 
+class _IPv4HTTPSConnection(http.client.HTTPSConnection):
+    """Request-scoped HTTPS connection prioritizing IPv4 to prevent dual-stack IPv6 OS delays on Windows."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._create_connection = self._ipv4_create_connection
+
+    @staticmethod
+    def _ipv4_create_connection(address, timeout=None, source_address=None):
+        host, port = address
+        err = None
+        try:
+            for res in socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM):
+                af, socktype, proto, canonname, sa = res
+                sock = None
+                try:
+                    sock = socket.socket(af, socktype, proto)
+                    if timeout is not None:
+                        sock.settimeout(timeout)
+                    if source_address:
+                        sock.bind(source_address)
+                    sock.connect(sa)
+                    return sock
+                except OSError as e:
+                    err = e
+                    if sock:
+                        sock.close()
+        except OSError:
+            pass
+
+        if err:
+            return socket.create_connection(address, timeout, source_address)
+        return socket.create_connection(address, timeout, source_address)
+
+
+class _IPv4HTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_IPv4HTTPSConnection, req)
+
+
 class DatasetResearcher:
     """Discovers and evaluates datasets for Machine Learning applications."""
 
@@ -165,7 +206,8 @@ class DatasetResearcher:
         candidates = []
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "JARVIS-ML-Agent/2.0"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            opener = urllib.request.build_opener(_IPv4HTTPSHandler)
+            with opener.open(req, timeout=8) as resp:
                 if resp.status == 200:
                     data = json.loads(resp.read().decode("utf-8"))
                     for item in data[:limit]:

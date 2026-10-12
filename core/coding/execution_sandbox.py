@@ -190,8 +190,14 @@ class ExecutionSandbox:
             rev_res = TerminalExecutor.execute("git rev-parse HEAD", cwd=project_dir, timeout=10)
             commit_hash = rev_res.stdout.strip() if rev_res.exit_code == 0 else "unknown"
 
-            # Check modified files
-            stat_res = TerminalExecutor.execute("git diff --name-only HEAD~1 HEAD", cwd=project_dir, timeout=10)
+            # Check modified files (separate initial root commit from subsequent commits)
+            has_parent = (
+                TerminalExecutor.execute("git rev-parse --verify HEAD~1", cwd=project_dir, timeout=5).exit_code == 0
+            )
+            if has_parent:
+                stat_res = TerminalExecutor.execute("git diff --name-only HEAD~1 HEAD", cwd=project_dir, timeout=10)
+            else:
+                stat_res = TerminalExecutor.execute("git diff-tree --no-commit-id --name-only -r --root HEAD", cwd=project_dir, timeout=10)
             files = [f.strip() for f in stat_res.stdout.splitlines() if f.strip()]
 
             import time
@@ -210,6 +216,16 @@ class ExecutionSandbox:
         if not (project_dir / ".git").exists():
             return ""
         try:
+            if compare_with == "HEAD~1":
+                has_parent = (
+                    TerminalExecutor.execute("git rev-parse --verify HEAD~1", cwd=project_dir, timeout=5).exit_code == 0
+                )
+                if not has_parent:
+                    res = TerminalExecutor.execute("git diff-tree -p --root HEAD", cwd=project_dir, timeout=15)
+                    if res.exit_code == 0:
+                        return res.stdout
+                    st_res = TerminalExecutor.execute("git status --short", cwd=project_dir, timeout=10)
+                    return st_res.stdout
             res = TerminalExecutor.execute(f"git diff {compare_with}", cwd=project_dir, timeout=15)
             if res.exit_code == 0:
                 return res.stdout
