@@ -15,6 +15,7 @@ import csv
 import json
 import os
 import shutil
+import sys
 import urllib.request
 import zipfile
 from dataclasses import asdict, dataclass, field
@@ -53,14 +54,18 @@ class DatasetDownloader:
     def check_kaggle_auth() -> Tuple[bool, str]:
         """Check whether Kaggle API credentials exist in environment or ~/.kaggle/kaggle.json."""
         kaggle_json = Path.home() / ".kaggle" / "kaggle.json"
-        has_file = kaggle_json.exists()
-        has_env = bool(os.environ.get("KAGGLE_USERNAME") and os.environ.get("KAGGLE_KEY"))
+        local_kaggle = Path(".kaggle") / "kaggle.json"
+        has_file = kaggle_json.exists() or local_kaggle.exists()
+        has_env = bool(
+            (os.environ.get("KAGGLE_USERNAME") and os.environ.get("KAGGLE_KEY"))
+            or (os.environ.get("KAGGLE_CONFIG_DIR") and (Path(os.environ["KAGGLE_CONFIG_DIR"]) / "kaggle.json").exists())
+        )
 
         if has_file or has_env:
             return True, "Kaggle credentials verified."
         return False, (
             "Kaggle credentials missing. To use Kaggle datasets, place your kaggle.json in "
-            f"{Path.home() / '.kaggle'} or set KAGGLE_USERNAME and KAGGLE_KEY in your environment."
+            f"{Path.home() / '.kaggle'} or project .kaggle/ or set KAGGLE_USERNAME and KAGGLE_KEY in your environment."
         )
 
     def download_and_verify(
@@ -137,23 +142,33 @@ class DatasetDownloader:
                     is_verified=False,
                     error_message=auth_msg,
                 )
-            # Execute kaggle datasets download
-            cmd = f'kaggle datasets download -d {candidate.identifier} -p "{raw_dir}" --unzip'
+            # Execute kaggle datasets download (CLI with python -m kaggle & KaggleApi fallbacks)
+            abs_raw = raw_dir.resolve()
+            cmd = f'kaggle datasets download -d {candidate.identifier} -p "{abs_raw}" --unzip'
             res = TerminalExecutor.execute(cmd, cwd=project_dir, timeout=120)
             if res.exit_code != 0:
-                return VerifiedDataset(
-                    candidate_name=candidate.name,
-                    source="kaggle",
-                    absolute_path=str(raw_dir),
-                    relative_path_in_project="data/raw",
-                    format="kaggle",
-                    row_count=0,
-                    column_count=0,
-                    columns=[],
-                    missing_value_count=0,
-                    is_verified=False,
-                    error_message=f"Kaggle CLI download failed: {res.stderr or res.stdout}",
-                )
+                py_cmd = f'"{sys.executable}" -m kaggle datasets download -d {candidate.identifier} -p "{abs_raw}" --unzip'
+                res = TerminalExecutor.execute(py_cmd, cwd=project_dir, timeout=120)
+            if res.exit_code != 0:
+                try:
+                    from kaggle.api.kaggle_api_extended import KaggleApi
+                    k_api = KaggleApi()
+                    k_api.authenticate()
+                    k_api.dataset_download_files(candidate.identifier, path=str(abs_raw), unzip=True)
+                except Exception as k_err:
+                    return VerifiedDataset(
+                        candidate_name=candidate.name,
+                        source="kaggle",
+                        absolute_path=str(raw_dir),
+                        relative_path_in_project="data/raw",
+                        format="kaggle",
+                        row_count=0,
+                        column_count=0,
+                        columns=[],
+                        missing_value_count=0,
+                        is_verified=False,
+                        error_message=f"Kaggle download failed: {res.stderr or res.stdout or str(k_err)}",
+                    )
             # Locate first extracted CSV
             csvs = list(raw_dir.glob("*.csv"))
             target_file = csvs[0] if csvs else raw_dir
